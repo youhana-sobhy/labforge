@@ -206,7 +206,7 @@ function askName(force = false) {
     <div class="modal-foot"><button class="btn primary" id="nm-ok">Continue</button></div>`, { onOpen: (m) => {
     const inp = $("#nm", m); inp.focus(); inp.select();
     const ok = () => { const v = inp.value.trim(); if (!v) { inp.focus(); return; } state.user = v; store.set("user", v); renderUser(); closeModal(); };
-    $("#nm-ok", m).onclick = ok; inp.onkeydown = (e) => e.key === "Enter" && ok();
+    $("#nm-ok", m).onclick = ok; inp.addEventListener("keydown", (e) => { if (e.key === "Enter") ok(); });
   }, dismissable: !!state.user });
 }
 $("#user-chip").onclick = () => askName(true);
