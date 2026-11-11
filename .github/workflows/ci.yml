@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    name: Lint and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: pytest -q
+
+  labs:
+    name: Boot every lab and run its tests
+    runs-on: ubuntu-latest
+    needs: unit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - name: Pre-pull lab images
+        run: |
+          docker pull frrouting/frr:v8.4.1
+          docker pull nicolaka/netshoot:v0.14
+      - name: Launch, test and destroy each topology
+        run: labforge test
+      - name: Nothing left behind
+        run: |
+          test -z "$(docker ps -aq --filter label=labforge.lab)"
+          test -z "$(docker network ls -q --filter label=labforge.lab)"
+
+  image:
+    name: Build the LabForge container
+    runs-on: ubuntu-latest
+    needs: unit
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t labforge:ci .
+      - name: Smoke-test the container
+        run: |
+          docker run -d --name lf -p 8080:8080 -v /var/run/docker.sock:/var/run/docker.sock labforge:ci
+          for i in $(seq 1 30); do curl -sf localhost:8080/api/health && break; sleep 1; done
+          curl -sf localhost:8080/api/catalog | python3 -c "import sys,json; assert len(json.load(sys.stdin)) >= 5"
+          curl -sf localhost:8080/ | grep -q LabForge

@@ -1,0 +1,118 @@
+id: branch-office
+name: Market Branch Office
+summary: Staff and Guest VLANs behind a stateful firewall, with a BGP edge router to the ISP.
+description: >
+  The standard shape of a market branch. An access switch carries a Staff VLAN and a Guest VLAN up to the
+  firewall, which routes between zones and enforces policy. An edge router peers eBGP with
+  the provider, which hosts a public web server. Use it to rehearse VLAN, firewall policy and BGP edge
+  changes before they reach a real branch.
+category: Enterprise
+difficulty: Intermediate
+ttl_minutes: 120
+tags: [VLANs, firewall zones, eBGP, default route]
+use_cases:
+  - Add a new VLAN end to end (switch, firewall sub-interface, policy)
+  - Change guest isolation rules and prove staff stay protected
+  - Rehearse an ISP BGP change on the edge router
+nodes:
+  staff-pc:
+    kind: host
+    label: Staff PC
+    pos: [80, 80]
+    interfaces: {eth1: 10.10.10.11/24}
+    gateway: 10.10.10.1
+  guest-pc:
+    kind: host
+    label: Guest PC
+    pos: [80, 360]
+    interfaces: {eth1: 10.10.20.11/24}
+    gateway: 10.10.20.1
+  sw1:
+    kind: switch
+    label: Access switch
+    pos: [250, 220]
+    ports:
+      eth1: {access: 10}
+      eth2: {access: 20}
+      eth3: {access: 10}
+      eth4: {access: 20}
+  fw1:
+    kind: firewall
+    label: Branch firewall
+    pos: [430, 220]
+    interfaces:
+      eth1: 10.10.10.1/24
+      eth3: 10.10.20.1/24
+      eth2: 192.168.255.1/30
+    routes: {default: 192.168.255.2}
+    ruleset: |
+      flush ruleset
+      table inet filter {
+        chain forward {
+          type filter hook forward priority filter; policy drop;
+          ct state established,related counter accept comment "return traffic"
+          iifname "eth1" counter accept comment "STAFF -> any"
+          iifname "eth3" oifname "eth2" counter accept comment "GUEST -> internet only"
+          counter drop comment "default deny"
+        }
+      }
+  edge1:
+    kind: router
+    label: WAN edge router
+    pos: [610, 220]
+    interfaces: {eth1: 192.168.255.2/30, eth2: 100.64.0.1/30, lo: 10.255.0.1/32}
+    config: |
+      ip route 10.10.0.0/16 192.168.255.1
+      !
+      router bgp 65010
+       bgp router-id 10.255.0.1
+       no bgp ebgp-requires-policy
+       neighbor 100.64.0.2 remote-as 64500
+       neighbor 100.64.0.2 description ISP-Transit
+       address-family ipv4 unicast
+        network 10.10.0.0/16
+       exit-address-family
+  isp:
+    kind: router
+    label: ISP router
+    pos: [790, 220]
+    interfaces: {eth1: 100.64.0.2/30, eth2: 198.51.100.1/24, lo: 10.255.0.2/32}
+    config: |
+      router bgp 64500
+       bgp router-id 10.255.0.2
+       no bgp ebgp-requires-policy
+       neighbor 100.64.0.1 remote-as 65010
+       neighbor 100.64.0.1 description Customer-Branch
+       address-family ipv4 unicast
+        network 198.51.100.0/24
+        neighbor 100.64.0.1 default-originate
+       exit-address-family
+  web:
+    kind: host
+    label: Internet web server
+    pos: [790, 400]
+    interfaces: {eth1: 198.51.100.10/24}
+    gateway: 198.51.100.1
+    startup:
+      - 'socat TCP-LISTEN:80,fork,reuseaddr SYSTEM:"echo HTTP/1.0 200 OK; echo; echo Hello from the internet"'
+links:
+  - [staff-pc:eth1, sw1:eth1]
+  - [guest-pc:eth1, sw1:eth2]
+  - [sw1:eth3, fw1:eth1]
+  - [sw1:eth4, fw1:eth3]
+  - [fw1:eth2, edge1:eth1]
+  - [edge1:eth2, isp:eth1]
+  - [isp:eth2, web:eth1]
+checks:
+  - {name: Staff PC reaches its gateway over VLAN 10, type: ping, node: staff-pc, target: 10.10.10.1}
+  - {name: Guest PC reaches its gateway over VLAN 20, type: ping, node: guest-pc, target: 10.10.20.1}
+  - {name: eBGP session to the ISP is Established, type: bgp, node: edge1, target: 100.64.0.2}
+  - {name: Edge router learns a default route from the ISP, type: route, node: edge1, target: default}
+  - {name: Staff PC reaches the internet, type: ping, node: staff-pc, target: 198.51.100.10}
+  - name: Guest PC can browse the internet web server
+    type: command
+    node: guest-pc
+    command: curl -s -m 3 http://198.51.100.10
+    contains: Hello from the internet
+  - {name: Guest VLAN is isolated from Staff VLAN, type: ping, node: guest-pc, target: 10.10.10.11, expect: fail}
+  - {name: Internet cannot open connections to Staff PC, type: ping, node: web, target: 10.10.10.11, expect: fail}

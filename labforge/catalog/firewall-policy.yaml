@@ -1,0 +1,77 @@
+id: firewall-policy
+name: Three-Zone Firewall Policy
+summary: Inside, DMZ and Outside zones, so you can test firewall policy changes before go-live.
+description: >
+  A perimeter firewall with three zones: Inside (users), DMZ (a published web server) and Outside (the
+  internet). The policy allows users out, publishes only HTTP on the DMZ server, and blocks everything
+  else. Edit the ruleset, push it, and the built-in tests prove whether the change does what the ticket
+  says, the same way you would on a FortiGate or Palo Alto.
+category: Security
+difficulty: Beginner
+ttl_minutes: 60
+tags: [zones, stateful policy, DMZ, NAT-free]
+use_cases:
+  - Peer-review a firewall policy change with evidence
+  - Prove a new rule opens only the intended port
+  - Train new engineers on zone-based policy
+nodes:
+  user:
+    kind: host
+    label: Inside user
+    pos: [120, 250]
+    interfaces: {eth1: 10.1.0.10/24}
+    gateway: 10.1.0.1
+  fw:
+    kind: firewall
+    label: Perimeter firewall
+    pos: [480, 250]
+    interfaces: {eth1: 10.1.0.1/24, eth2: 172.16.50.1/24, eth3: 203.0.113.1/24}
+    ruleset: |
+      flush ruleset
+      table inet filter {
+        chain forward {
+          type filter hook forward priority filter; policy drop;
+          ct state established,related counter accept comment "allow return traffic"
+          iifname "eth1" counter accept comment "INSIDE -> any"
+          oifname "eth2" tcp dport 80 counter accept comment "any -> DMZ web (HTTP only)"
+          counter drop comment "default deny"
+        }
+      }
+  dmz-web:
+    kind: host
+    label: DMZ web server
+    pos: [480, 470]
+    interfaces: {eth1: 172.16.50.10/24}
+    gateway: 172.16.50.1
+    startup:
+      - 'socat TCP-LISTEN:80,fork,reuseaddr SYSTEM:"echo HTTP/1.0 200 OK; echo; echo DMZ web server"'
+      - 'socat TCP-LISTEN:22,fork,reuseaddr SYSTEM:"echo SSH-2.0-OpenSSH_9.6"'
+  internet:
+    kind: host
+    label: Internet client
+    pos: [840, 250]
+    interfaces: {eth1: 203.0.113.50/24}
+    gateway: 203.0.113.1
+links:
+  - [user:eth1, fw:eth1]
+  - [fw:eth2, dmz-web:eth1]
+  - [fw:eth3, internet:eth1]
+checks:
+  - {name: Inside user reaches the internet, type: ping, node: user, target: 203.0.113.50}
+  - name: Inside user can browse the DMZ web server
+    type: command
+    node: user
+    command: curl -s -m 3 http://172.16.50.10
+    contains: DMZ web server
+  - name: Internet can browse the published DMZ web server
+    type: command
+    node: internet
+    command: curl -s -m 3 http://172.16.50.10
+    contains: DMZ web server
+  - name: Internet cannot reach SSH on the DMZ server
+    type: command
+    node: internet
+    command: nc -z -w 2 172.16.50.10 22
+    expect: fail
+  - {name: Internet cannot reach the inside network, type: ping, node: internet, target: 10.1.0.10, expect: fail}
+  - {name: DMZ cannot initiate to the inside network, type: ping, node: dmz-web, target: 10.1.0.10, expect: fail}

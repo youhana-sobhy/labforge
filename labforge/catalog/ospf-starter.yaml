@@ -1,0 +1,68 @@
+id: ospf-starter
+name: Routing Starter Lab
+summary: Two routers and two PCs. The smallest useful lab, built for training and first steps.
+description: >
+  A gentle first lab for engineers new to automation or routing. Two routers run OSPF over a single link,
+  each with a LAN and a PC. Open the router console, explore show commands, then break and fix the
+  adjacency. Boots in a few seconds and costs almost nothing to run.
+category: Training
+difficulty: Beginner
+ttl_minutes: 60
+tags: [OSPF, training, CLI basics]
+use_cases:
+  - Onboarding and self-paced training
+  - Practise show and debug commands safely
+  - Try a first automated config push
+nodes:
+  pc1:
+    kind: host
+    label: PC 1
+    pos: [120, 220]
+    interfaces: {eth1: 192.168.10.10/24}
+    gateway: 192.168.10.1
+  rtr1:
+    kind: router
+    label: Router 1
+    pos: [400, 220]
+    interfaces: {eth1: 192.168.10.1/24, eth2: 10.0.0.1/30, lo: 1.1.1.1/32}
+    config: |
+      interface eth1
+       ip ospf area 0
+       ip ospf passive
+      interface eth2
+       ip ospf network point-to-point
+       ip ospf hello-interval 1
+       ip ospf dead-interval 4
+       ip ospf area 0
+      router ospf
+       ospf router-id 1.1.1.1
+  rtr2:
+    kind: router
+    label: Router 2
+    pos: [680, 220]
+    interfaces: {eth1: 10.0.0.2/30, eth2: 192.168.20.1/24, lo: 2.2.2.2/32}
+    config: |
+      interface eth1
+       ip ospf network point-to-point
+       ip ospf hello-interval 1
+       ip ospf dead-interval 4
+       ip ospf area 0
+      interface eth2
+       ip ospf area 0
+       ip ospf passive
+      router ospf
+       ospf router-id 2.2.2.2
+  pc2:
+    kind: host
+    label: PC 2
+    pos: [960, 220]
+    interfaces: {eth1: 192.168.20.10/24}
+    gateway: 192.168.20.1
+links:
+  - [pc1:eth1, rtr1:eth1]
+  - [rtr1:eth2, rtr2:eth1]
+  - [rtr2:eth2, pc2:eth1]
+checks:
+  - {name: OSPF adjacency is Full, type: ospf, node: rtr1, target: 2.2.2.2}
+  - {name: Router 1 learns the PC 2 LAN, type: route, node: rtr1, target: 192.168.20.0/24}
+  - {name: PC 1 reaches PC 2, type: ping, node: pc1, target: 192.168.20.10}

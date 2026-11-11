@@ -1,0 +1,19 @@
+# LabForge talks to the Docker engine through its socket and launches labs next to itself.
+# Works with Docker Desktop (Windows / macOS) and Docker Engine on Linux.
+services:
+  labforge:
+    build: .
+    image: labforge:0.1.0
+    container_name: labforge
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"   # open to your machine only; there is no login yet
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - labforge-data:/data
+    environment:
+      LABFORGE_MAX_ACTIVE_LABS: "10"
+      LABFORGE_MAX_TTL_MINUTES: "480"
+
+volumes:
+  labforge-data:

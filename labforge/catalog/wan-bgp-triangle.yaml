@@ -1,0 +1,97 @@
+id: wan-bgp-triangle
+name: WAN BGP Triangle
+summary: Three sites in a full eBGP mesh, so you can break a link and watch traffic reroute.
+description: >
+  Three autonomous systems peer eBGP over point-to-point WAN links, each with a site LAN behind it.
+  Every site reaches every other site on the direct path, and BGP reroutes through the third router when a
+  link fails. Ideal for rehearsing routing policy, prefix filters and failover before a WAN change window.
+category: WAN / Routing
+difficulty: Intermediate
+ttl_minutes: 90
+tags: [eBGP, failover, multi-AS, BFD]
+use_cases:
+  - Shut a WAN link and verify the alternate path
+  - Test route-maps and prefix lists before a policy change
+  - Train engineers on BGP path selection
+nodes:
+  r1:
+    kind: router
+    label: Site A router (AS65001)
+    pos: [300, 110]
+    interfaces: {eth1: 10.0.12.1/30, eth2: 10.0.13.1/30, eth3: 192.168.1.1/24, lo: 1.1.1.1/32}
+    config: |
+      router bgp 65001
+       bgp router-id 1.1.1.1
+       no bgp ebgp-requires-policy
+       timers bgp 3 9
+       neighbor 10.0.12.2 remote-as 65002
+       neighbor 10.0.13.2 remote-as 65003
+       address-family ipv4 unicast
+        network 1.1.1.1/32
+        network 192.168.1.0/24
+       exit-address-family
+  r2:
+    kind: router
+    label: Site B router (AS65002)
+    pos: [560, 380]
+    interfaces: {eth1: 10.0.12.2/30, eth2: 10.0.23.1/30, eth3: 192.168.2.1/24, lo: 2.2.2.2/32}
+    config: |
+      router bgp 65002
+       bgp router-id 2.2.2.2
+       no bgp ebgp-requires-policy
+       timers bgp 3 9
+       neighbor 10.0.12.1 remote-as 65001
+       neighbor 10.0.23.2 remote-as 65003
+       address-family ipv4 unicast
+        network 2.2.2.2/32
+        network 192.168.2.0/24
+       exit-address-family
+  r3:
+    kind: router
+    label: Site C router (AS65003)
+    pos: [820, 110]
+    interfaces: {eth1: 10.0.23.2/30, eth2: 10.0.13.2/30, eth3: 192.168.3.1/24, lo: 3.3.3.3/32}
+    config: |
+      router bgp 65003
+       bgp router-id 3.3.3.3
+       no bgp ebgp-requires-policy
+       timers bgp 3 9
+       neighbor 10.0.23.1 remote-as 65002
+       neighbor 10.0.13.1 remote-as 65001
+       address-family ipv4 unicast
+        network 3.3.3.3/32
+        network 192.168.3.0/24
+       exit-address-family
+  site-a:
+    kind: host
+    label: Site A LAN
+    pos: [90, 110]
+    interfaces: {eth1: 192.168.1.10/24}
+    gateway: 192.168.1.1
+  site-b:
+    kind: host
+    label: Site B LAN
+    pos: [560, 560]
+    interfaces: {eth1: 192.168.2.10/24}
+    gateway: 192.168.2.1
+  site-c:
+    kind: host
+    label: Site C LAN
+    pos: [1030, 110]
+    interfaces: {eth1: 192.168.3.10/24}
+    gateway: 192.168.3.1
+links:
+  - [r1:eth1, r2:eth1]
+  - [r2:eth2, r3:eth1]
+  - [r1:eth2, r3:eth2]
+  - [r1:eth3, site-a:eth1]
+  - [r2:eth3, site-b:eth1]
+  - [r3:eth3, site-c:eth1]
+checks:
+  - {name: BGP r1 to r2 Established, type: bgp, node: r1, target: 10.0.12.2}
+  - {name: BGP r2 to r3 Established, type: bgp, node: r2, target: 10.0.23.2}
+  - {name: BGP r1 to r3 Established, type: bgp, node: r1, target: 10.0.13.2}
+  - {name: Site A learns the Site C prefix, type: route, node: r1, target: 192.168.3.0/24}
+  - {name: Site A reaches Site B, type: ping, node: site-a, target: 192.168.2.10}
+  - {name: Site A reaches Site C, type: ping, node: site-a, target: 192.168.3.10}
+  - {name: Site B reaches Site C, type: ping, node: site-b, target: 192.168.3.10}

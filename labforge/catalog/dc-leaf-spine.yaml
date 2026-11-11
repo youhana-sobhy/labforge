@@ -1,0 +1,154 @@
+id: dc-leaf-spine
+name: Data Centre Leaf-Spine Fabric
+summary: Two spines, two leaves, ECMP OSPF underlay, and racks of servers on VLAN-switched access.
+description: >
+  A small Clos fabric like the ones behind market data centres. Every leaf connects to every spine, OSPF
+  runs point-to-point on each fabric link, and traffic between racks load-balances over both spines (ECMP).
+  Rack 2 hangs off a top-of-rack VLAN switch. Use it to plan fabric expansion, maintenance on a spine,
+  or underlay changes.
+category: Data Centre
+difficulty: Advanced
+ttl_minutes: 120
+tags: [Clos, OSPF, ECMP, top-of-rack]
+use_cases:
+  - Drain a spine for maintenance and confirm zero loss
+  - Add a new leaf or rack to the fabric
+  - Validate an underlay change before a DC change window
+nodes:
+  spine1:
+    kind: router
+    label: Spine 1
+    pos: [380, 90]
+    interfaces: {eth1: 10.1.11.0/31, eth2: 10.1.12.0/31, lo: 10.0.0.1/32}
+    config: |
+      interface eth1
+       ip ospf network point-to-point
+       ip ospf hello-interval 1
+       ip ospf dead-interval 4
+       ip ospf area 0
+      interface eth2
+       ip ospf network point-to-point
+       ip ospf hello-interval 1
+       ip ospf dead-interval 4
+       ip ospf area 0
+      interface lo
+       ip ospf area 0
+      router ospf
+       ospf router-id 10.0.0.1
+       maximum-paths 8
+  spine2:
+    kind: router
+    label: Spine 2
+    pos: [760, 90]
+    interfaces: {eth1: 10.1.21.0/31, eth2: 10.1.22.0/31, lo: 10.0.0.2/32}
+    config: |
+      interface eth1
+       ip ospf network point-to-point
+       ip ospf hello-interval 1
+       ip ospf dead-interval 4
+       ip ospf area 0
+      interface eth2
+       ip ospf network point-to-point
+       ip ospf hello-interval 1
+       ip ospf dead-interval 4
+       ip ospf area 0
+      interface lo
+       ip ospf area 0
+      router ospf
+       ospf router-id 10.0.0.2
+       maximum-paths 8
+  leaf1:
+    kind: router
+    label: Leaf 1
+    pos: [380, 300]
+    interfaces: {eth1: 10.1.11.1/31, eth2: 10.1.21.1/31, eth3: 10.20.1.1/24, lo: 10.0.0.11/32}
+    config: |
+      interface eth1
+       ip ospf network point-to-point
+       ip ospf hello-interval 1
+       ip ospf dead-interval 4
+       ip ospf area 0
+      interface eth2
+       ip ospf network point-to-point
+       ip ospf hello-interval 1
+       ip ospf dead-interval 4
+       ip ospf area 0
+      interface eth3
+       ip ospf area 0
+       ip ospf passive
+      interface lo
+       ip ospf area 0
+      router ospf
+       ospf router-id 10.0.0.11
+       maximum-paths 8
+  leaf2:
+    kind: router
+    label: Leaf 2
+    pos: [760, 300]
+    interfaces: {eth1: 10.1.12.1/31, eth2: 10.1.22.1/31, eth3: 10.20.2.1/24, lo: 10.0.0.12/32}
+    config: |
+      interface eth1
+       ip ospf network point-to-point
+       ip ospf hello-interval 1
+       ip ospf dead-interval 4
+       ip ospf area 0
+      interface eth2
+       ip ospf network point-to-point
+       ip ospf hello-interval 1
+       ip ospf dead-interval 4
+       ip ospf area 0
+      interface eth3
+       ip ospf area 0
+       ip ospf passive
+      interface lo
+       ip ospf area 0
+      router ospf
+       ospf router-id 10.0.0.12
+       maximum-paths 8
+  srv1:
+    kind: host
+    label: Rack 1 server
+    pos: [380, 500]
+    interfaces: {eth1: 10.20.1.10/24}
+    gateway: 10.20.1.1
+  tor2:
+    kind: switch
+    label: Rack 2 ToR switch
+    pos: [760, 470]
+    ports:
+      eth1: {access: 100}
+      eth2: {access: 100}
+      eth3: {access: 100}
+  srv2:
+    kind: host
+    label: Rack 2 server A
+    pos: [660, 620]
+    interfaces: {eth1: 10.20.2.10/24}
+    gateway: 10.20.2.1
+  srv3:
+    kind: host
+    label: Rack 2 server B
+    pos: [860, 620]
+    interfaces: {eth1: 10.20.2.11/24}
+    gateway: 10.20.2.1
+links:
+  - [spine1:eth1, leaf1:eth1]
+  - [spine1:eth2, leaf2:eth1]
+  - [spine2:eth1, leaf1:eth2]
+  - [spine2:eth2, leaf2:eth2]
+  - [leaf1:eth3, srv1:eth1]
+  - [leaf2:eth3, tor2:eth1]
+  - [tor2:eth2, srv2:eth1]
+  - [tor2:eth3, srv3:eth1]
+checks:
+  - {name: Leaf 1 has a Full OSPF adjacency to Spine 1, type: ospf, node: leaf1, target: 10.0.0.1}
+  - {name: Leaf 1 has a Full OSPF adjacency to Spine 2, type: ospf, node: leaf1, target: 10.0.0.2}
+  - {name: Leaf 2 has a Full OSPF adjacency to Spine 1, type: ospf, node: leaf2, target: 10.0.0.1}
+  - name: Rack 2 is reachable over both spines (ECMP)
+    type: command
+    node: leaf1
+    command: ip route show 10.20.2.0/24
+    contains: nexthop
+  - {name: Rack 1 server reaches Rack 2 server A, type: ping, node: srv1, target: 10.20.2.10}
+  - {name: Rack 1 server reaches Rack 2 server B, type: ping, node: srv1, target: 10.20.2.11}
+  - {name: Servers in Rack 2 switch locally, type: ping, node: srv2, target: 10.20.2.11}
